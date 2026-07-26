@@ -1,0 +1,19 @@
+{
+    "env": [
+        {
+            "CHARMAT_ROOT": "$HOUDINI_PACKAGE_PATH/CharacterMaterialTool"
+        },
+        {
+            "PYTHONPATH": {
+                "value": "$CHARMAT_ROOT/python",
+                "method": "prepend"
+            }
+        },
+        {
+            "HOUDINI_TOOLBAR_PATH": {
+                "value": "$CHARMAT_ROOT/toolbar",
+                "method": "prepend"
+            }
+        }
+    ]
+}
