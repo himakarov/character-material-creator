@@ -1,13 +1,16 @@
 # Changelog
 
+## 1.1.3
+- Fixed the updater: it had placeholder repo settings (YOUR_USERNAME/YOUR_REPO)
+  and a wrong subdir, so "Check for updates" always failed with a connection
+  error. Now points at the real repository, so self-update works.
+
 ## 1.1.2
-- Fixed material assignment failing (0 assigned) when a character has indexed
-  meshes like Runner_A_Teeth_0/1/2. The trailing _N index no longer collapses
-  the character prefix, and the prefix falls back to the material prefix if
-  detection is weak.
+- Fixed material assignment (0 assigned) for characters with indexed meshes
+  like Teeth_0/1/2 collapsing the character prefix.
 
 ## 1.1.1
-- Reliable startup: shelf registration via scripts/python/ready.py.
+- Reliable startup shelf registration via scripts/python/ready.py.
 
 ## 1.1.0
 - Shared "CGA Tools" shelf; updater refreshes the manifest.
