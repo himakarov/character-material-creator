@@ -13,11 +13,11 @@ import urllib.request
 # ---------------------------------------------------------------------------
 # REPOSITORY SETTINGS - CHANGE TO YOUR OWN
 # ---------------------------------------------------------------------------
-GITHUB_USER = "YOUR_USERNAME"
-GITHUB_REPO = "YOUR_REPO"
+GITHUB_USER = "himakarov"
+GITHUB_REPO = "character-material-creator"
 GITHUB_BRANCH = "main"
 # subfolder inside the repo that holds the package (empty = repo root)
-REPO_SUBDIR = "CharacterMaterialTool"
+REPO_SUBDIR = ""
 # ---------------------------------------------------------------------------
 
 RAW_BASE = "https://raw.githubusercontent.com/%s/%s/%s" % (
