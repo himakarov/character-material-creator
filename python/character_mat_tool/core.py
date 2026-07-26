@@ -26,6 +26,13 @@ MATERIALS_PREFIX = "/materials/"
 
 
 # ---------------------------------------------------------------------------
+def _strip_trailing_index(name):
+    """Remove a trailing _N index so Teeth_0/Teeth_1 share a common prefix.
+    Runner_A_Teeth_0 -> Runner_A_Teeth."""
+    import re as _re
+    return _re.sub(r"_\d+$", "", name)
+
+
 def _common_prefix(names):
     if not names:
         return ""
@@ -303,10 +310,21 @@ def build(root_folder, assign=True):
     assigned, unmatched = 0, []
     if assign and created:
         geo_items = _collect_geo(matlib)
-        # prefix from resolved (meaningful) names only, ignoring mesh_N garbage
-        name_pool = [it[3] for it in geo_items if len(it) > 3 and it[3]]
-        name_pool += [it[2] for it in geo_items if not _is_garbage_name(it[2])]
-        char_prefix = _common_prefix(name_pool) if name_pool else mat_prefix
+        # Build a name pool for prefix detection, stripping trailing numeric
+        # parts (Runner_A_Teeth_0/1/2 would otherwise collapse the common
+        # prefix to nothing).
+        name_pool = []
+        for it in geo_items:
+            for nm in (it[3] if len(it) > 3 else "", it[2]):
+                if nm and not _is_garbage_name(nm):
+                    name_pool.append(_strip_trailing_index(nm))
+        char_prefix = _common_prefix(name_pool) if name_pool else ""
+
+        # If prefix detection failed or is weaker than the material prefix,
+        # fall back to the material prefix (they match for a character).
+        if len(char_prefix) < len(mat_prefix):
+            char_prefix = mat_prefix
+
         pairs, unmatched = _match_pairs(geo_items, created, char_prefix, mat_prefix)
         _assign_materials(stage, matlib, pairs, mat_prefix)
         assigned = len(pairs)
