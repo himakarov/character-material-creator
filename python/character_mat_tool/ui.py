@@ -78,8 +78,28 @@ class CharMatDialog(QtWidgets.QDialog):
         bottom.addWidget(self.changelog_btn)
         self.update_btn = QtWidgets.QPushButton("Check for updates")
         self.update_btn.clicked.connect(self._do_update)
+        self._style_update_btn(available=False)
         bottom.addWidget(self.update_btn)
         lay.addLayout(bottom)
+
+    def _style_update_btn(self, available):
+        """Give the update button a clear button look. When an update is
+        available, use an accent style so it still reads as a button."""
+        if available:
+            self.update_btn.setStyleSheet(
+                "QPushButton {"
+                "  background-color: #2e8b6b; color: #ffffff;"
+                "  border: 1px solid #3fae87; border-radius: 3px;"
+                "  padding: 3px 10px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #37a37f; }"
+                "QPushButton:pressed { background-color: #276e55; }")
+        else:
+            self.update_btn.setStyleSheet(
+                "QPushButton {"
+                "  border: 1px solid #555; border-radius: 3px;"
+                "  padding: 3px 10px; }"
+                "QPushButton:hover { border-color: #777; }"
+                "QPushButton:pressed { background-color: #333; }")
 
     # --- settings ---
     def _load_settings(self):
@@ -159,8 +179,8 @@ class CharMatDialog(QtWidgets.QDialog):
         except Exception:
             return
         if avail:
-            self.update_btn.setText("Update to %s !" % rem)
-            self.update_btn.setStyleSheet("font-weight: bold; color: #4a9;")
+            self.update_btn.setText("Update to %s" % rem)
+            self._style_update_btn(available=True)
 
     def _do_update(self):
         self.update_btn.setEnabled(False)

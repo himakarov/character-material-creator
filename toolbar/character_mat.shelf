@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <shelfDocument>
-  <tool name="charmat_build" label="Char Mat" icon="SHELF_material">
+  <tool name="charmat_build" label="Char Mat" icon="char_mat">
     <helpText><![CDATA[Character Material Tool - auto-build Karma materials for characters.]]></helpText>
     <script scriptType="python"><![CDATA[
 from character_mat_tool import ui
