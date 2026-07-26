@@ -122,29 +122,64 @@ def _build_material(matlib, mat_name, textures):
     return sub
 
 
+def _is_garbage_name(name):
+    """True if a prim name carries no material info."""
+    if not name:
+        return True
+    low = name.lower()
+    if low.startswith("shop_materialpath"):
+        return True
+    if low.startswith("principledshader") or "principledshader" in low:
+        return True
+    # generic auto-names like mesh_0, mesh_1, geo1, object_3
+    import re as _re
+    if _re.match(r"^(mesh|geo|object|prim)_?\d+$", low):
+        return True
+    return False
+
+
+def _meaningful_name(prim):
+    """Walk up the prim's ancestry and return the first non-garbage name.
+    Handles: clean subset/mesh names, mesh_N with the real name on the parent
+    Xform, and shader-path subset names."""
+    node = prim
+    depth = 0
+    while node is not None and depth < 4:
+        try:
+            nm = node.GetName()
+        except Exception:
+            nm = ""
+        if not _is_garbage_name(nm):
+            return nm
+        try:
+            node = node.GetParent()
+        except Exception:
+            break
+        depth += 1
+    return ""
+
+
 def _collect_geo(matlib):
-    # items: (path, type, name, parent_mesh_name)
-    # parent_mesh_name is used as a fallback when a subset name is garbage
-    # (e.g. imports that name subsets after a full shader path).
+    # items: (path, type, name, resolved_name)
+    # resolved_name is the best material-bearing name found by walking up
+    # the ancestry (covers USDC clean names AND FBX-via-SOP messy names).
     items = []
     try:
         stage = matlib.stage()
-        mesh_names = {}   # mesh path -> mesh short name
         with_subsets = set()
-        for p in stage.Traverse():
-            if p.GetTypeName() == "Mesh":
-                mesh_names[str(p.GetPath())] = p.GetName()
         for p in stage.Traverse():
             if p.GetTypeName() == "GeomSubset":
                 path = str(p.GetPath())
                 parent = path.rsplit("/", 1)[0]
-                items.append((path, "subset", p.GetName(),
-                              mesh_names.get(parent, "")))
+                items.append((path, "subset", p.GetName(), _meaningful_name(p)))
                 with_subsets.add(parent)
-        for path, mname in mesh_names.items():
+        for p in stage.Traverse():
+            if p.GetTypeName() != "Mesh":
+                continue
+            path = str(p.GetPath())
             if path in with_subsets:
                 continue
-            items.append((path, "mesh", mname, ""))
+            items.append((path, "mesh", p.GetName(), _meaningful_name(p)))
     except Exception:
         pass
     return items
@@ -173,30 +208,32 @@ def _match_pairs(geo_items, created_names, char_prefix, mat_prefix):
 
     pairs, unmatched = [], []
     for item in geo_items:
-        # backward-compatible unpack (subset items carry a parent mesh name)
         path, gtype, sname = item[0], item[1], item[2]
-        parent_mesh = item[3] if len(item) > 3 else ""
+        resolved = item[3] if len(item) > 3 else ""
         mat = None
-        if gtype == "subset":
-            if sname in created_set:
-                mat = sname
-            else:
-                mat = _find_mat(_core_of_material(sname, mat_prefix))
-            # fallback: subset name is garbage (e.g. a shader path) ->
-            # use the parent mesh name to find the material
-            if not mat and parent_mesh:
-                mat = _find_mat(_core_of_mesh(parent_mesh, char_prefix))
-        else:
+
+        # 1. exact subset name == material name (clean USDC pipeline)
+        if gtype == "subset" and sname in created_set:
+            mat = sname
+        # 2. subset name resolved via core matching
+        if not mat and gtype == "subset" and not _is_garbage_name(sname):
+            mat = _find_mat(_core_of_material(sname, mat_prefix))
+        # 3. resolved ancestry name (covers messy FBX subsets and mesh_N)
+        if not mat and resolved:
+            mat = _find_mat(_core_of_mesh(resolved, char_prefix))
+        # 4. suffix mode on the mesh's own name
+        if not mat and gtype == "mesh":
             if MATCH_MODE == "suffix":
                 cand = sname + MAT_SUFFIX
                 if cand in created_set:
                     mat = cand
-            else:
+            elif not _is_garbage_name(sname):
                 mat = _find_mat(_core_of_mesh(sname, char_prefix))
+
         if mat:
             pairs.append((path, mat))
         else:
-            unmatched.append(sname)
+            unmatched.append(resolved or sname)
     return pairs, unmatched
 
 
@@ -266,12 +303,10 @@ def build(root_folder, assign=True):
     assigned, unmatched = 0, []
     if assign and created:
         geo_items = _collect_geo(matlib)
-        # prefix from every mesh name: standalone meshes (item type "mesh")
-        # and parent meshes of subsets (4th element)
-        mesh_names = [it[2] for it in geo_items if it[1] == "mesh"]
-        mesh_names += [it[3] for it in geo_items
-                       if it[1] == "subset" and len(it) > 3 and it[3]]
-        char_prefix = _common_prefix(mesh_names) if mesh_names else mat_prefix
+        # prefix from resolved (meaningful) names only, ignoring mesh_N garbage
+        name_pool = [it[3] for it in geo_items if len(it) > 3 and it[3]]
+        name_pool += [it[2] for it in geo_items if not _is_garbage_name(it[2])]
+        char_prefix = _common_prefix(name_pool) if name_pool else mat_prefix
         pairs, unmatched = _match_pairs(geo_items, created, char_prefix, mat_prefix)
         _assign_materials(stage, matlib, pairs, mat_prefix)
         assigned = len(pairs)
