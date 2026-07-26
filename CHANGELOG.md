@@ -1,11 +1,15 @@
 # Changelog
 
+## 1.1.1
+- Reliable startup: shelf registration moved to scripts/python/ready.py with
+  deferred execution, so the CGA Tools shelf appears on a clean launch without
+  any manual step. (1.1.0 registered the shelf but didn't run automatically at
+  startup.)
+
 ## 1.1.0
-- Shared shelf: the tool now registers its button into a single "CGA Tools"
-  shelf instead of creating its own tab. Future CGA tools can share the same
-  shelf, so you get one tab with many buttons instead of one tab per tool.
-- The updater now also refreshes the package manifest (character_mat_tool.json)
-  in packages/, so manifest changes ship through the Update button too.
+- Shared shelf: the tool registers its button into a single "CGA Tools" shelf
+  instead of its own tab, added to the Build and Solaris shelf sets.
+- The updater now also refreshes the package manifest in packages/.
 
 ## 1.0.3
 - UI: proper update button styling; custom shelf icon.
