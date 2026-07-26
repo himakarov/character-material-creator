@@ -6,17 +6,16 @@ assigns them to meshes and GeomSubsets.
 
 ## Install
 
-1. Download the repository (GitHub **Code -> Download ZIP**) and unzip it.
-2. Locate your Houdini user preferences folder:
-   - Windows: `C:/Users/<name>/Documents/houdini20.5/`
-   - macOS: `~/Library/Preferences/houdini/20.5/`
-   - Linux: `~/houdini20.5/`
+1. Download `CharacterMaterialTool-v1.0.0.zip` from the [latest Release](../../releases/latest).
+2. Locate your Houdini user preferences folder and the `packages` folder
+   inside it (create `packages` if it does not exist yet):
+   - Windows: `C:/Users/<name>/Documents/houdini22.0/packages/`
+   - macOS: `~/Library/Preferences/houdini/22.0/packages/`
+   - Linux: `~/houdini22.0/packages/`
    (use your actual version)
-3. Create a `packages` folder inside it if it does not exist.
-4. Copy the **file** `character_mat_tool.json` and the **folder**
-   `CharacterMaterialTool` there, so you get:
+3. Extract the zip directly into that `packages` folder, so you get:
    ```
-   houdini20.5/
+   houdini22.0/
    └── packages/
        ├── character_mat_tool.json
        └── CharacterMaterialTool/
@@ -24,7 +23,8 @@ assigns them to meshes and GeomSubsets.
            ├── python/
            └── toolbar/
    ```
-5. Restart Houdini. A **Char Mat Tool** shelf tab appears.
+   No renaming needed - the zip is already laid out correctly.
+4. Restart Houdini. A **Char Mat Tool** shelf tab appears.
 
 ## Usage
 
