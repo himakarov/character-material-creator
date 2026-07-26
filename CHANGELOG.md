@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+- Fixed material assignment when GeomSubsets are named after a full shader
+  path (imports without a clean fbx_material_name partition). The tool now
+  falls back to the parent mesh name to resolve the material.
+
 ## 1.0.0
 - Initial release.
 - Auto-build Karma MaterialX materials from per-material subfolders.
