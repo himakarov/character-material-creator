@@ -13,11 +13,11 @@ import urllib.request
 # ---------------------------------------------------------------------------
 # REPOSITORY SETTINGS - CHANGE TO YOUR OWN
 # ---------------------------------------------------------------------------
-GITHUB_USER = "himakarov"
-GITHUB_REPO = "character-material-creator"
+GITHUB_USER = "YOUR_USERNAME"
+GITHUB_REPO = "YOUR_REPO"
 GITHUB_BRANCH = "main"
 # subfolder inside the repo that holds the package (empty = repo root)
-REPO_SUBDIR = ""
+REPO_SUBDIR = "CharacterMaterialTool"
 # ---------------------------------------------------------------------------
 
 RAW_BASE = "https://raw.githubusercontent.com/%s/%s/%s" % (
@@ -117,11 +117,46 @@ def update():
             return False, "Package folder '%s' not found in archive" % REPO_SUBDIR
 
         _copy_over(src, root)
+
+        # also update the package manifest, which lives OUTSIDE the tool folder
+        # (directly in packages/). The updater's file-copy above can't reach it,
+        # so handle it explicitly.
+        _update_manifest(root)
+
         return True, "Updated to %s. Restart Houdini to apply." % local_version()
     except Exception as e:
         return False, "Extract error: %s" % e
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _update_manifest(tool_root):
+    """Refresh character_mat_tool.json in packages/ from the repo copy.
+
+    tool_root is .../packages/CharacterMaterialTool ; the manifest sits one
+    level up at .../packages/character_mat_tool.json. The repo stores the
+    manifest at its root, so fetch it raw and, if changed, rewrite the local
+    one (adjusting CHARMAT_ROOT so it still points at the tool folder)."""
+    try:
+        packages_dir = os.path.dirname(tool_root)
+        local_manifest = os.path.join(packages_dir, "character_mat_tool.json")
+        if not os.path.isfile(local_manifest):
+            return  # unusual layout; leave it alone
+
+        remote = _remote_file("character_mat_tool.json")
+        if not remote:
+            return
+
+        with open(local_manifest, "r", encoding="utf-8") as f:
+            current = f.read()
+        if current.strip() == remote.strip():
+            return  # already up to date
+
+        with open(local_manifest, "w", encoding="utf-8") as f:
+            f.write(remote)
+    except Exception:
+        # manifest refresh is best-effort; never fail the whole update over it
+        pass
 
 
 def _copy_over(src, dst):
