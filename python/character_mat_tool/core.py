@@ -1,6 +1,29 @@
 """
 core.py - Karma material build logic for characters.
 UI-independent; called from ui.py.
+
+v1.2.0
+------
+Handles the "split slot" case: one mesh carrying several source materials
+(e.g. T_Adam_Overalls -> OverallsPantsMat + OverallsShirtMat, or
+CT_Warden_Suit -> JacketMat + PantsMat).
+
+Root cause of the old failure: FBX Character Import merges several material
+slots into ONE shop_materialpath, so SOP Import LOP (which partitions
+GeomSubsets by shop_materialpath) produces a SINGLE subset for the whole mesh
+and the second material has nowhere to bind.
+
+Fix strategy (in order of preference):
+  1. SOP input  -> retarget SOP Import partition to `fbx_material_name`
+     (enable_partitionattribs + partitionattribs). This natively slices one
+     GeomSubset per real material. No extra nodes, survives undo.
+  2. Matching    -> subset names then look like `fbx_material_name_<MatName>`
+     (or legacy `shop_materialpath__materials_<MatName>`); we extract the exact
+     material name from the subset name and bind precisely.
+  3. Reference input (baked .usdc) -> cannot be repartitioned on import
+     (no fbx_material_name in the file). If a mesh has one subset but several
+     candidate materials, we report it clearly so the USD can be re-exported
+     with `Subset Attributes = fbx_material_name` (as Warden USD was).
 """
 
 import os
@@ -23,6 +46,14 @@ MATCH_MODE = "core"          # "core" | "suffix"
 MAT_SUFFIX = "Mat"
 MAT_NAME_SUFFIXES = ["_Mat", "_M", "Mat", "_Material"]
 MATERIALS_PREFIX = "/materials/"
+
+# Attribute we want SOP Import LOPs to partition GeomSubsets by.
+# fbx_material_name preserves per-slot splits that shop_materialpath collapses.
+PARTITION_ATTRIB = "fbx_material_name"
+
+# Subset-name prefixes Houdini emits when "Prefix Subsets with Attribute Name"
+# is on. Used to recover the exact material name from an auto-generated subset.
+SUBSET_NAME_PREFIXES = ["fbx_material_name_"]
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +176,27 @@ def _is_garbage_name(name):
     return False
 
 
+def _mat_from_subset_name(sname):
+    """Recover the exact material name baked into an auto-generated GeomSubset
+    name. Supports:
+        fbx_material_name_<MatName>              (partition by fbx_material_name)
+        shop_materialpath__materials_<MatName>   (legacy wrangle-split path)
+    Returns '' for anything else (garbage shader-path subsets, clean mesh
+    names, etc.) so callers can safely fall through to the old matching
+    branches. Strict on purpose: no greedy '__' fallback that could misfire
+    on characters whose subsets were already clean (e.g. Warden USD)."""
+    if not sname:
+        return ""
+    for pref in SUBSET_NAME_PREFIXES:
+        if sname.startswith(pref):
+            return sname[len(pref):]
+    marker = "_materials_"
+    idx = sname.rfind(marker)
+    if idx != -1:
+        return sname[idx + len(marker):]
+    return ""
+
+
 def _meaningful_name(prim):
     """Walk up the prim's ancestry and return the first non-garbage name.
     Handles: clean subset/mesh names, mesh_N with the real name on the parent
@@ -219,8 +271,22 @@ def _match_pairs(geo_items, created_names, char_prefix, mat_prefix):
         resolved = item[3] if len(item) > 3 else ""
         mat = None
 
+        # 0. subset name carries the exact material name
+        #    (fbx_material_name_<MatName> or legacy _materials_<MatName>).
+        #    Runs BEFORE the garbage check so split-slot subsets (Shirt vs
+        #    Pants on one mesh) resolve to distinct materials instead of
+        #    collapsing to the shared parent mesh name. Strict extractor
+        #    returns '' for clean/garbage names, so nothing else is affected.
+        if gtype == "subset":
+            embedded = _mat_from_subset_name(sname)
+            if embedded:
+                if embedded in created_set:
+                    mat = embedded
+                else:
+                    mat = _find_mat(_core_of_material(embedded, mat_prefix))
+
         # 1. exact subset name == material name (clean USDC pipeline)
-        if gtype == "subset" and sname in created_set:
+        if not mat and gtype == "subset" and sname in created_set:
             mat = sname
         # 2. subset name resolved via core matching
         if not mat and gtype == "subset" and not _is_garbage_name(sname):
@@ -256,9 +322,109 @@ def _assign_materials(stage_node, matlib, pairs, prefix=""):
         _set_parm(assign, ["primpattern%d" % i, "geopath%d" % i], geo_path)
         _set_parm(assign, ["matspecpath%d" % i, "materialpath%d" % i,
                            "matpath%d" % i], MATERIALS_PREFIX + mat_name)
+    # place assign directly below matlib (only setPosition on the new node)
+    try:
+        mp = matlib.position()
+        assign.setPosition(hou.Vector2(mp.x(), mp.y() - 1.0))
+    except Exception:
+        pass
     assign.setDisplayFlag(True)
     assign.setSelected(True, clear_all_selected=True)
     return assign
+
+
+# ---------------------------------------------------------------------------
+# Split-slot handling
+# ---------------------------------------------------------------------------
+def _retarget_sop_partitions(stage):
+    """Find SOP Import LOPs feeding the stage and make them partition
+    GeomSubsets by PARTITION_ATTRIB (fbx_material_name) instead of
+    shop_materialpath.
+
+    This natively slices one GeomSubset per real material, fixing merged-slot
+    meshes for any SOP-fed character. Idempotent: skips nodes already set
+    correctly. Only touches nodes that actually expose the partition parms
+    (SOP Import / SOP Create), so Reference LOPs are ignored.
+
+    Returns a list of node paths that were changed (for reporting)."""
+    changed = []
+    root = hou.node("/stage")
+    if root is None:
+        return changed
+
+    for node in root.children():
+        pa = node.parm("partitionattribs")
+        en = node.parm("enable_partitionattribs")
+        if pa is None or en is None:
+            continue  # not a SOP Import LOP
+
+        current = pa.eval()
+        need = (en.eval() != 1) or (PARTITION_ATTRIB not in current.split())
+        if not need:
+            continue
+
+        try:
+            en.set(1)
+            # keep any existing attribs the user may rely on, drop the merged
+            # shop_materialpath, ensure ours is present
+            existing = [a for a in current.split()
+                        if a and a != "shop_materialpath"]
+            if PARTITION_ATTRIB not in existing:
+                existing.append(PARTITION_ATTRIB)
+            pa.set(" ".join(existing) if existing else PARTITION_ATTRIB)
+            # prefix subset names with the attribute name -> stable extraction
+            _set_parm(node, ["enable_prefixpartitionsubsets"], 1)
+            _set_parm(node, ["prefixpartitionsubsets"], 1)
+            changed.append(node.path())
+        except Exception:
+            pass
+
+    return changed
+
+
+def _detect_unsplittable(matlib, created_names, mat_prefix):
+    """Detect meshes that carry a SINGLE subset but map to SEVERAL candidate
+    materials (the merged-slot case that cannot be fixed on import, e.g. a
+    baked Reference/USDC without fbx_material_name).
+
+    Returns a list of human-readable warnings for the report."""
+    warnings = []
+    try:
+        stage = matlib.stage()
+    except Exception:
+        return warnings
+
+    created_cores = {}
+    for m in created_names:
+        created_cores.setdefault(_core_of_material(m, mat_prefix), []).append(m)
+
+    for prim in stage.Traverse():
+        if prim.GetTypeName() != "Mesh":
+            continue
+        subs = [c for c in prim.GetChildren()
+                if c.GetTypeName() == "GeomSubset"]
+        if len(subs) != 1:
+            continue  # 0 subsets or already split -> not this case
+
+        mesh_name = prim.GetName()
+        mesh_core = _core_of_mesh(mesh_name, mat_prefix)
+
+        # how many created materials look like they belong to this mesh?
+        candidates = []
+        for mcore, mats in created_cores.items():
+            if not mesh_core or not mcore:
+                continue
+            if mcore.startswith(mesh_core) and mcore != mesh_core:
+                candidates.extend(mats)
+
+        if len(candidates) >= 2:
+            warnings.append(
+                "%s: 1 subset but %d candidate materials (%s). "
+                "Re-export this asset's USD with "
+                "'Subset Attributes = fbx_material_name'."
+                % (mesh_name, len(candidates), ", ".join(sorted(candidates)))
+            )
+    return warnings
 
 
 def build(root_folder, assign=True):
@@ -277,13 +443,37 @@ def build(root_folder, assign=True):
     matlib_name = (mat_prefix + "_materiallibrary") if mat_prefix else "materiallibrary_auto"
 
     stage = hou.node("/stage")
+
+    # Anchor = the character node the user selected before pressing Build.
+    # New nodes are chained below it: anchor -> materiallibrary -> assignmaterial.
+    sel = hou.selectedNodes()
+    anchor = None
+    for n in sel:
+        # take the first selected node that lives in /stage
+        try:
+            if n.parent() is not None and n.parent().path() == "/stage":
+                anchor = n
+                break
+        except Exception:
+            continue
+    if anchor is None:
+        return {"error": "Select the character node in /stage before building "
+                         "(the SOP Import or Reference node)."}
+
+    # --- STEP 0: make SOP Import LOPs partition by fbx_material_name so
+    #     merged-slot meshes get one GeomSubset per real material.
+    #     (No-op for Reference-only setups; those are diagnosed later.)
+    partition_changed = _retarget_sop_partitions(stage)
+
     matlib = stage.createNode("materiallibrary")
     matlib.setName(matlib_name, unique_name=True)
 
+    # chain matlib below the anchor and position it (setPosition only on the
+    # new node - never layoutChildren on the parent, it destroys the graph).
     try:
-        disp = stage.displayNode()
-        if disp is not None and disp.path() != matlib.path():
-            matlib.setInput(0, disp)
+        matlib.setInput(0, anchor)
+        ap = anchor.position()
+        matlib.setPosition(hou.Vector2(ap.x(), ap.y() - 1.0))
     except Exception:
         pass
 
@@ -308,6 +498,7 @@ def build(root_folder, assign=True):
                 pass
 
     assigned, unmatched = 0, []
+    split_warnings = []
     if assign and created:
         geo_items = _collect_geo(matlib)
         # Build a name pool for prefix detection, stripping trailing numeric
@@ -329,10 +520,15 @@ def build(root_folder, assign=True):
         _assign_materials(stage, matlib, pairs, mat_prefix)
         assigned = len(pairs)
 
+        # Diagnose meshes that couldn't be split on import (baked references).
+        split_warnings = _detect_unsplittable(matlib, created, mat_prefix)
+
     return {
         "created": created,
         "skipped": skipped,
         "assigned": assigned,
         "unmatched": sorted(set(unmatched)),
         "matlib": matlib.path(),
+        "partition_changed": partition_changed,
+        "split_warnings": split_warnings,
     }
