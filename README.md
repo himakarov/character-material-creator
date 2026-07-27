@@ -6,7 +6,7 @@ assigns them to meshes and GeomSubsets.
 
 ## Install
 
-1. Download `CharacterMaterialTool-v1.1.0.zip` from the [latest Release](../../releases/latest).
+1. Download latest version from the [latest Release](../../releases/latest).
 2. Locate your Houdini user preferences folder and the `packages` folder
    inside it (create `packages` if it does not exist yet):
    - Windows: `C:/Users/<name>/Documents/houdini22.0/packages/`
