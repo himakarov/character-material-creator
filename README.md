@@ -24,7 +24,7 @@ assigns them to meshes and GeomSubsets.
            └── toolbar/
    ```
    No renaming needed - the zip is already laid out correctly.
-4. Restart Houdini. A **Char Mat Tool** shelf tab appears.
+4. Restart Houdini. A **CGA Tools** shelf tab appears.
 
 ## Usage
 
