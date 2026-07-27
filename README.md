@@ -41,14 +41,6 @@ assigns them to meshes and GeomSubsets.
 The **Check for updates** button pulls the latest version from GitHub. If a
 newer version exists it downloads and overwrites the local files. Restart
 Houdini after updating. The **Changelog** button shows what changed.
-
-## Maintainer setup
-
-In `python/character_mat_tool/updater.py` set:
-```python
-GITHUB_USER = "your_login"
-GITHUB_REPO = "your_repo"
-GITHUB_BRANCH = "main"
 REPO_SUBDIR = "CharacterMaterialTool"
 ```
 To publish an update: bump the number in `VERSION`, add a `CHANGELOG.md` entry,
