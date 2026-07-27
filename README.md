@@ -1,19 +1,25 @@
 # Character Material Tool
 
-Auto-builds Karma materials for characters in Houdini (Solaris).
-Walks a folder of per-material subfolders, builds MaterialX graphs, and
-assigns them to meshes and GeomSubsets.
+[Русский](README.md) | [English](README.en.md)
 
-## Install
+Автоматически собирает Karma-материалы для персонажей в Houdini (Solaris).
+Проходит по папке с подпапками-материалами, строит MaterialX-графы и
+назначает их на меши и GeomSubset'ы.
 
-1. Download latest version from the [latest Release](../../releases/latest).
-2. Locate your Houdini user preferences folder and the `packages` folder
-   inside it (create `packages` if it does not exist yet):
+Тул умеет обрабатывать частый случай, когда один меш несёт несколько исходных
+материалов (например, один меш тела разбит на два материал-слота). См. раздел
+[Как работает разбиение материалов](#как-работает-разбиение-материалов) ниже.
+
+## Установка
+
+1. Скачай последнюю версию из [последнего релиза](../../releases/latest).
+2. Найди папку пользовательских настроек Houdini и папку `packages` внутри неё
+   (создай `packages`, если её ещё нет):
    - Windows: `C:/Users/<name>/Documents/houdini22.0/packages/`
    - macOS: `~/Library/Preferences/houdini/22.0/packages/`
    - Linux: `~/houdini22.0/packages/`
-   (use your actual version)
-3. Extract the zip directly into that `packages` folder, so you get:
+   (подставь свою версию)
+3. Распакуй zip прямо в папку `packages`, чтобы получилось:
    ```
    houdini22.0/
    └── packages/
@@ -21,27 +27,86 @@ assigns them to meshes and GeomSubsets.
        └── CharacterMaterialTool/
            ├── VERSION
            ├── python/
-           └── toolbar/
+           ├── config/
+           └── scripts/
    ```
-   No renaming needed - the zip is already laid out correctly.
-4. Restart Houdini. A **CGA Tools** shelf tab appears.
+   Переименовывать ничего не нужно — архив уже разложен правильно.
+4. Перезапусти Houdini. Появится полка **CGA Tools** с кнопкой **Char Mat**.
 
-## Usage
+## Использование
 
-1. Build your character in `/stage` (e.g. via SOP Import with a skeleton) and
-   set the display flag on the node you want.
-2. Click **Char Mat** on the shelf.
-3. Pick the folder with per-material subfolders (each subfolder = one material,
-   containing textures with suffixes `_basecolor`, `_normal`, `_roughness`,
+1. Собери персонажа в `/stage`. Работают оба варианта входа:
+   - **SOP Import** (SOP Create / SOP Import UsdSkel Character), питаемый
+     FBX Character Import, или
+   - **Reference / Payload** запечённого `.usdc`.
+2. **Выдели ноду персонажа**, на которую хочешь назначить материалы (ноду
+   SOP Import или Reference). Тул выстраивает свои новые ноды цепочкой прямо
+   под выделенной, поэтому выделение обязательно — если в `/stage` ничего не
+   выделено, Build остановится и попросит выделить ноду персонажа.
+3. Нажми **Char Mat** на полке.
+4. Выбери папку с подпапками-материалами (каждая подпапка = один материал,
+   с текстурами по суффиксам `_basecolor`, `_normal`, `_roughness`,
    `_metallic`).
-4. Click **Build**.
+5. Нажми **Build**.
 
-## Updating
-
-The **Check for updates** button pulls the latest version from GitHub. If a
-newer version exists it downloads and overwrites the local files. Restart
-Houdini after updating. The **Changelog** button shows what changed.
-REPO_SUBDIR = "CharacterMaterialTool"
+Тул добавляет две ноды цепочкой под персонажем:
 ```
-To publish an update: bump the number in `VERSION`, add a `CHANGELOG.md` entry,
-and push to the repository.
+<нода персонажа>
+        │
+  materiallibrary   (строит MaterialX-графы)
+        │
+  assignmaterial    (биндит материалы на меши / субсеты)
+```
+
+## Как работает разбиение материалов
+
+FBX Character Import может слить несколько материал-слотов одного меша в один
+`shop_materialpath`. По умолчанию SOP Import нарезает GeomSubset'ы по
+`shop_materialpath`, поэтому слитый меш получает **один** субсет, и лишним
+материалам некуда биндиться. Тул решает это в зависимости от типа входа:
+
+- **SOP-вход.** Перед сборкой тул переключает партицию SOP Import на
+  `fbx_material_name` (и включает *Prefix Subsets with Attribute Name*). Это
+  нативно нарезает по одному GeomSubset на каждый реальный материал, так что
+  слитый меш автоматически получает отдельный субсет под каждый свой
+  материал-слот. Без доп-нод, и изменение переживает undo.
+
+- **Reference / запечённый USD.** В запечённом `.usdc` нет `fbx_material_name`,
+  поэтому его нельзя перепартиционировать на импорте — разбиение должно уже
+  существовать в файле. Если USD был экспортирован с
+  **Subset Attributes = `fbx_material_name`**, субсеты уже правильные и всё
+  биндится как надо. Если он экспортирован со слитым субсетом, тул не может его
+  разбить и вместо этого сообщает о проблемном меше, например:
+  ```
+  <MeshName>: 1 subset but 2 candidate materials
+  (<MaterialA>, <MaterialB>).
+  Re-export this asset's USD with 'Subset Attributes = fbx_material_name'.
+  ```
+  Переэкспортируй USD персонажа с этой настройкой — и меш забиндится
+  корректно.
+
+**Рекомендуемая настройка экспорта:** при записи USD персонажей ставь
+**Subset Attributes = `fbx_material_name`** (с включённым *Prefix Subsets with
+Attribute Name*). Это сохраняет разбиение по слотам и заставляет SOP- и
+Reference-воркфлоу вести себя одинаково.
+
+## Сопоставление материалов
+
+Меши и субсеты сопоставляются материалам по имени:
+
+- GeomSubset, чьё авто-имя несёт материал (`fbx_material_name_<MatName>`),
+  биндится прямо на этот материал.
+- Иначе имя меша / субсета сопоставляется материалу по общему корню: у меша
+  срезается префикс персонажа, у материала — префикс и суффиксы (`_Mat`, `_M`,
+  `_Material`), после чего остатки сравниваются (например,
+  `<Prefix>_Arms` ↔ `<Prefix>_ArmsMat` → `arms`).
+
+Всё, что тул не смог сопоставить, попадает в отчёт Build — так проще заметить
+несоответствия в именах или отсутствующие папки текстур.
+
+## Обновление
+
+Кнопка **Check for updates** тянет последнюю версию с GitHub. Если есть более
+новая версия, она скачивается и перезаписывает локальные файлы. После
+обновления перезапусти Houdini. Кнопка **Changelog** показывает, что
+изменилось.
