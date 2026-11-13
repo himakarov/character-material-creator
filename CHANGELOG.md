@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+- Fixed Build resetting materials on other assets in the scene. The
+  `fbx_material_name` partition retarget ran on every SOP Import / SOP Create
+  in `/stage`, so a location or prop partitioned by `shop_materialpath` lost
+  its GeomSubsets and its assigned materials. It now only touches the selected
+  character node and the nodes upstream of it, and skips any node whose
+  geometry has no `fbx_material_name` attribute.
+
 ## 1.2.0
 - Handle the "split slot" case: one mesh carrying several source materials
   (e.g. one FBX-merged shop_materialpath covering two real materials).

@@ -336,27 +336,47 @@ def _assign_materials(stage_node, matlib, pairs, prefix=""):
 # ---------------------------------------------------------------------------
 # Split-slot handling
 # ---------------------------------------------------------------------------
-def _retarget_sop_partitions(stage):
-    """Find SOP Import LOPs feeding the stage and make them partition
-    GeomSubsets by PARTITION_ATTRIB (fbx_material_name) instead of
-    shop_materialpath.
+def _sop_geometry_has_attrib(node, attrib_name):
+    """Whether the SOP geometry a SOP Import / SOP Create LOP brings in has
+    the primitive attribute. Returns None when the geometry can't be read."""
+    try:
+        if node.type().name().startswith("sopcreate"):
+            sop = node.node("sopnet/create").displayNode()
+        else:
+            sop = node.parm("soppath").evalAsNode()
+        geo = sop.geometry()
+        return geo.findPrimAttrib(attrib_name) is not None
+    except Exception:
+        return None
+
+
+def _retarget_sop_partitions(anchor):
+    """Find SOP Import LOPs feeding the character (the anchor node and
+    everything upstream of it) and make them partition GeomSubsets by
+    PARTITION_ATTRIB (fbx_material_name) instead of shop_materialpath.
 
     This natively slices one GeomSubset per real material, fixing merged-slot
     meshes for any SOP-fed character. Idempotent: skips nodes already set
     correctly. Only touches nodes that actually expose the partition parms
     (SOP Import / SOP Create), so Reference LOPs are ignored.
 
+    Nodes on other branches of /stage (a location, props) are left alone, and
+    so is any node whose geometry has no fbx_material_name attribute:
+    retargeting those would remove their shop_materialpath subsets and with
+    them the materials already assigned there.
+
     Returns a list of node paths that were changed (for reporting)."""
     changed = []
-    root = hou.node("/stage")
-    if root is None:
+    if anchor is None:
         return changed
 
-    for node in root.children():
+    for node in [anchor] + list(anchor.inputAncestors()):
         pa = node.parm("partitionattribs")
         en = node.parm("enable_partitionattribs")
         if pa is None or en is None:
             continue  # not a SOP Import LOP
+        if _sop_geometry_has_attrib(node, PARTITION_ATTRIB) is False:
+            continue  # nothing to partition by; keep its current subsets
 
         current = pa.eval()
         need = (en.eval() != 1) or (PARTITION_ATTRIB not in current.split())
@@ -463,7 +483,7 @@ def build(root_folder, assign=True):
     # --- STEP 0: make SOP Import LOPs partition by fbx_material_name so
     #     merged-slot meshes get one GeomSubset per real material.
     #     (No-op for Reference-only setups; those are diagnosed later.)
-    partition_changed = _retarget_sop_partitions(stage)
+    partition_changed = _retarget_sop_partitions(anchor)
 
     matlib = stage.createNode("materiallibrary")
     matlib.setName(matlib_name, unique_name=True)
